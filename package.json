@@ -20,7 +20,8 @@
     "date-fns": "^2.30.0",
     "react-hot-toast": "^2.4.1",
     "jsonwebtoken": "^9.0.2",
-    "bcryptjs": "^2.4.3"
+    "bcryptjs": "^2.4.3",
+    "buffer": "^6.0.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
