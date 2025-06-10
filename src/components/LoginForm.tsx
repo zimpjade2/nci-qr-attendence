@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Building2, Mail, Lock, UserPlus } from 'lucide-react';
+import { Building2, Mail, Lock, UserPlus, Eye, EyeOff } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
 export const LoginForm: React.FC = () => {
   const { login, createUser } = useApp();
   const [isLogin, setIsLogin] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
     name: '',
     studentId: '',
-    role: 'student' as 'admin' | 'student'
+    department: ''
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -25,21 +26,35 @@ export const LoginForm: React.FC = () => {
         if (success) {
           toast.success('Login successful!');
         } else {
-          toast.error('Invalid credentials');
+          toast.error('Invalid email or password');
         }
       } else {
+        // Validate password strength
+        if (formData.password.length < 6) {
+          toast.error('Password must be at least 6 characters long');
+          setIsLoading(false);
+          return;
+        }
+
         await createUser({
           name: formData.name,
           email: formData.email,
-          role: formData.role,
-          studentId: formData.studentId || undefined
+          password: formData.password,
+          role: 'student', // Always student for signup
+          studentId: formData.studentId || undefined,
+          department: formData.department || undefined
         });
+        
         toast.success('Account created successfully! You can now login.');
         setIsLogin(true);
-        setFormData({ email: '', password: '', name: '', studentId: '', role: 'student' });
+        setFormData({ email: formData.email, password: '', name: '', studentId: '', department: '' });
       }
-    } catch (error) {
-      toast.error('An error occurred. Please try again.');
+    } catch (error: any) {
+      if (error.message?.includes('UNIQUE constraint failed')) {
+        toast.error('An account with this email already exists');
+      } else {
+        toast.error('An error occurred. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -58,7 +73,7 @@ export const LoginForm: React.FC = () => {
           <h2 className="text-3xl font-bold text-white">NCI - Attendance App</h2>
           <p className="mt-1 text-white/60 text-sm">by Noble Computers</p>
           <p className="mt-2 text-white/70">
-            {isLogin ? 'Sign in to your account' : 'Create your account'}
+            {isLogin ? 'Sign in to your account' : 'Create your student account'}
           </p>
         </div>
 
@@ -68,7 +83,7 @@ export const LoginForm: React.FC = () => {
             {!isLogin && (
               <>
                 <div>
-                  <label className="block text-sm font-medium text-white mb-2">Full Name</label>
+                  <label className="block text-sm font-medium text-white mb-2">Full Name *</label>
                   <input
                     type="text"
                     required={!isLogin}
@@ -80,34 +95,31 @@ export const LoginForm: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-white mb-2">Role</label>
-                  <select
-                    value={formData.role}
-                    onChange={(e) => setFormData({ ...formData, role: e.target.value as 'admin' | 'student' })}
-                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  >
-                    <option value="student" className="bg-gray-800">Student</option>
-                    <option value="admin" className="bg-gray-800">Admin</option>
-                  </select>
+                  <label className="block text-sm font-medium text-white mb-2">Student ID</label>
+                  <input
+                    type="text"
+                    value={formData.studentId}
+                    onChange={(e) => setFormData({ ...formData, studentId: e.target.value })}
+                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="Enter your student ID"
+                  />
                 </div>
 
-                {formData.role === 'student' && (
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-2">Student ID</label>
-                    <input
-                      type="text"
-                      value={formData.studentId}
-                      onChange={(e) => setFormData({ ...formData, studentId: e.target.value })}
-                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                      placeholder="Enter your student ID"
-                    />
-                  </div>
-                )}
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">Department</label>
+                  <input
+                    type="text"
+                    value={formData.department}
+                    onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="Enter your department"
+                  />
+                </div>
               </>
             )}
 
             <div>
-              <label className="block text-sm font-medium text-white mb-2">Email</label>
+              <label className="block text-sm font-medium text-white mb-2">Email *</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/50" />
                 <input
@@ -121,22 +133,30 @@ export const LoginForm: React.FC = () => {
               </div>
             </div>
 
-            {isLogin && (
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">Password</label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/50" />
-                  <input
-                    type="password"
-                    required
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="w-full pl-12 pr-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="Enter your password"
-                  />
-                </div>
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Password * {!isLogin && <span className="text-white/50 text-xs">(minimum 6 characters)</span>}
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/50" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  className="w-full pl-12 pr-12 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  placeholder={isLogin ? "Enter your password" : "Create a secure password"}
+                  minLength={isLogin ? undefined : 6}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/50 hover:text-white transition-colors"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
               </div>
-            )}
+            </div>
 
             <button
               type="submit"
@@ -156,7 +176,11 @@ export const LoginForm: React.FC = () => {
 
           <div className="mt-6 text-center">
             <button
-              onClick={() => setIsLogin(!isLogin)}
+              onClick={() => {
+                setIsLogin(!isLogin);
+                setFormData({ email: '', password: '', name: '', studentId: '', department: '' });
+                setShowPassword(false);
+              }}
               className="text-white/70 hover:text-white transition-colors"
             >
               {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
@@ -165,8 +189,20 @@ export const LoginForm: React.FC = () => {
 
           {isLogin && (
             <div className="mt-4 p-4 bg-white/5 rounded-lg">
-              <p className="text-sm text-white/70 text-center">
-                Demo Login: admin@attendance.app (any password)
+              <p className="text-sm text-white/70 text-center mb-2">
+                <strong>Demo Login:</strong>
+              </p>
+              <p className="text-xs text-white/60 text-center">
+                Email: admin@attendance.app<br />
+                Password: admin123
+              </p>
+            </div>
+          )}
+
+          {!isLogin && (
+            <div className="mt-4 p-4 bg-blue-500/20 rounded-lg border border-blue-500/30">
+              <p className="text-sm text-blue-200 text-center">
+                <strong>Note:</strong> New accounts are created as students. Contact an administrator to upgrade to admin privileges.
               </p>
             </div>
           )}

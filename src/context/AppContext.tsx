@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import { useDatabase } from '../hooks/useDatabase';
+import { hashPassword, verifyPassword, generateToken, verifyToken, getStoredToken, setStoredToken, removeStoredToken, isTokenExpired } from '../utils/auth';
 import type { AppState, User, AttendanceSession, AttendanceRecord } from '../types';
 
 interface AppContextType extends AppState {
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
-  createUser: (userData: Omit<User, 'id' | 'createdAt'>) => Promise<string>;
+  createUser: (userData: Omit<User, 'id' | 'createdAt' | 'password'> & { password: string }) => Promise<string>;
   createSession: (sessionData: Omit<AttendanceSession, 'id' | 'createdAt' | 'qrCode'>) => Promise<string>;
   markAttendance: (sessionId: string, userId: string) => Promise<boolean>;
   getSessionAttendance: (sessionId: string) => AttendanceRecord[];
@@ -71,10 +72,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       loadSessions();
       loadAttendanceRecords();
       
-      // Check for saved login
-      const savedUser = localStorage.getItem('currentUser');
-      if (savedUser) {
-        dispatch({ type: 'SET_USER', payload: JSON.parse(savedUser) });
+      // Check for valid stored token
+      const token = getStoredToken();
+      if (token && !isTokenExpired(token)) {
+        const decoded = verifyToken(token);
+        if (decoded) {
+          // Load user from database to ensure data is current
+          const stmt = db.prepare('SELECT * FROM users WHERE id = ?');
+          stmt.bind([decoded.userId]);
+          
+          if (stmt.step()) {
+            const row = stmt.getAsObject();
+            const user: User = {
+              id: row.id as string,
+              name: row.name as string,
+              email: row.email as string,
+              role: row.role as 'admin' | 'student',
+              studentId: row.student_id as string,
+              department: row.department as string,
+              createdAt: row.created_at as string
+            };
+            
+            dispatch({ type: 'SET_USER', payload: user });
+          }
+          
+          stmt.free();
+        }
+      } else {
+        // Clear invalid token
+        removeStoredToken();
       }
     }
   }, [db, isLoading]);
@@ -82,7 +108,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const loadUsers = () => {
     if (!db) return;
     
-    const stmt = db.prepare('SELECT * FROM users ORDER BY created_at DESC');
+    const stmt = db.prepare('SELECT id, name, email, role, student_id, department, created_at FROM users ORDER BY created_at DESC');
     const users: User[] = [];
     
     while (stmt.step()) {
@@ -154,51 +180,71 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const login = async (email: string, password: string): Promise<boolean> => {
     if (!db) return false;
     
-    // Simple authentication - in production, use proper password hashing
-    const stmt = db.prepare('SELECT * FROM users WHERE email = ?');
-    stmt.bind([email]);
-    
-    if (stmt.step()) {
-      const row = stmt.getAsObject();
-      const user: User = {
-        id: row.id as string,
-        name: row.name as string,
-        email: row.email as string,
-        role: row.role as 'admin' | 'student',
-        studentId: row.student_id as string,
-        department: row.department as string,
-        createdAt: row.created_at as string
-      };
+    try {
+      const stmt = db.prepare('SELECT * FROM users WHERE email = ?');
+      stmt.bind([email]);
+      
+      if (stmt.step()) {
+        const row = stmt.getAsObject();
+        const hashedPassword = row.password as string;
+        
+        // Verify password
+        const isValidPassword = await verifyPassword(password, hashedPassword);
+        
+        if (isValidPassword) {
+          const user: User = {
+            id: row.id as string,
+            name: row.name as string,
+            email: row.email as string,
+            role: row.role as 'admin' | 'student',
+            studentId: row.student_id as string,
+            department: row.department as string,
+            createdAt: row.created_at as string
+          };
+          
+          // Generate JWT token
+          const token = generateToken(user.id, user.email, user.role);
+          setStoredToken(token);
+          
+          stmt.free();
+          dispatch({ type: 'SET_USER', payload: user });
+          return true;
+        }
+      }
       
       stmt.free();
-      dispatch({ type: 'SET_USER', payload: user });
-      localStorage.setItem('currentUser', JSON.stringify(user));
-      return true;
+      return false;
+    } catch (error) {
+      console.error('Login error:', error);
+      return false;
     }
-    
-    stmt.free();
-    return false;
   };
 
   const logout = () => {
+    removeStoredToken();
     dispatch({ type: 'SET_USER', payload: null });
-    localStorage.removeItem('currentUser');
   };
 
-  const createUser = async (userData: Omit<User, 'id' | 'createdAt'>): Promise<string> => {
+  const createUser = async (userData: Omit<User, 'id' | 'createdAt' | 'password'> & { password: string }): Promise<string> => {
     if (!db) throw new Error('Database not available');
     
-    const id = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const createdAt = new Date().toISOString();
-    
-    db.run(
-      'INSERT INTO users (id, name, email, role, student_id, department, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [id, userData.name, userData.email, userData.role, userData.studentId || null, userData.department || null, createdAt]
-    );
-    
-    saveDatabase();
-    loadUsers();
-    return id;
+    try {
+      const id = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const createdAt = new Date().toISOString();
+      const hashedPassword = await hashPassword(userData.password);
+      
+      db.run(
+        'INSERT INTO users (id, name, email, password, role, student_id, department, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [id, userData.name, userData.email, hashedPassword, userData.role, userData.studentId || null, userData.department || null, createdAt]
+      );
+      
+      saveDatabase();
+      loadUsers();
+      return id;
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw error;
+    }
   };
 
   const createSession = async (sessionData: Omit<AttendanceSession, 'id' | 'createdAt' | 'qrCode'>): Promise<string> => {
@@ -222,6 +268,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!db) return false;
     
     try {
+      // Check if attendance already marked
+      const checkStmt = db.prepare('SELECT COUNT(*) as count FROM attendance_records WHERE session_id = ? AND user_id = ?');
+      checkStmt.bind([sessionId, userId]);
+      
+      if (checkStmt.step()) {
+        const result = checkStmt.getAsObject();
+        if (result.count > 0) {
+          checkStmt.free();
+          return false; // Already marked
+        }
+      }
+      checkStmt.free();
+      
       const id = `attendance-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const markedAt = new Date().toISOString();
       
@@ -270,7 +329,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-        <div className="text-white text-xl">Loading...</div>
+        <div className="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20">
+          <div className="flex items-center space-x-4">
+            <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+            <div className="text-white text-xl font-medium">Initializing Database...</div>
+          </div>
+        </div>
       </div>
     );
   }

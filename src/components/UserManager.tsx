@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Users, Plus, Search, Mail, UserCheck, GraduationCap, Shield } from 'lucide-react';
+import { Users, Plus, Search, Mail, UserCheck, GraduationCap, Shield, Eye, EyeOff } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 
@@ -9,10 +9,12 @@ export const UserManager: React.FC = () => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRole, setFilterRole] = useState<'all' | 'admin' | 'student'>('all');
+  const [showPassword, setShowPassword] = useState(false);
   
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    password: '',
     role: 'student' as 'admin' | 'student',
     studentId: '',
     department: ''
@@ -21,20 +23,31 @@ export const UserManager: React.FC = () => {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    if (formData.password.length < 6) {
+      toast.error('Password must be at least 6 characters long');
+      return;
+    }
+    
     try {
       await createUser(formData);
       
       setFormData({
         name: '',
         email: '',
+        password: '',
         role: 'student',
         studentId: '',
         department: ''
       });
       setShowCreateForm(false);
+      setShowPassword(false);
       toast.success('User created successfully!');
-    } catch (error) {
-      toast.error('Failed to create user');
+    } catch (error: any) {
+      if (error.message?.includes('UNIQUE constraint failed')) {
+        toast.error('A user with this email already exists');
+      } else {
+        toast.error('Failed to create user');
+      }
     }
   };
 
@@ -102,11 +115,11 @@ export const UserManager: React.FC = () => {
       {/* Create User Modal */}
       {showCreateForm && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20 w-full max-w-md">
+          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20 w-full max-w-md max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold text-white mb-4">Add New User</h2>
             <form onSubmit={handleCreateUser} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-white mb-2">Full Name</label>
+                <label className="block text-sm font-medium text-white mb-2">Full Name *</label>
                 <input
                   type="text"
                   required
@@ -118,7 +131,7 @@ export const UserManager: React.FC = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-white mb-2">Email</label>
+                <label className="block text-sm font-medium text-white mb-2">Email *</label>
                 <input
                   type="email"
                   required
@@ -127,6 +140,30 @@ export const UserManager: React.FC = () => {
                   className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   placeholder="Enter email address"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Password * <span className="text-white/50 text-xs">(minimum 6 characters)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="w-full px-4 py-2 pr-12 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="Enter secure password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/50 hover:text-white transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div>
@@ -170,7 +207,18 @@ export const UserManager: React.FC = () => {
               <div className="flex space-x-4 pt-4">
                 <button
                   type="button"
-                  onClick={() => setShowCreateForm(false)}
+                  onClick={() => {
+                    setShowCreateForm(false);
+                    setShowPassword(false);
+                    setFormData({
+                      name: '',
+                      email: '',
+                      password: '',
+                      role: 'student',
+                      studentId: '',
+                      department: ''
+                    });
+                  }}
                   className="flex-1 px-4 py-2 border border-white/20 text-white rounded-lg hover:bg-white/10 transition-colors"
                 >
                   Cancel

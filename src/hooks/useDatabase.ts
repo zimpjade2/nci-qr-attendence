@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import initSqlJs from 'sql.js';
 import type { Database } from 'sql.js';
+import { hashPassword } from '../utils/auth';
 
 export const useDatabase = () => {
   const [db, setDb] = useState<Database | null>(null);
@@ -22,7 +23,7 @@ export const useDatabase = () => {
           database = new SQL.Database(dbArray);
         } else {
           database = new SQL.Database();
-          initializeTables(database);
+          await initializeTables(database);
         }
 
         setDb(database);
@@ -44,13 +45,14 @@ export const useDatabase = () => {
     }
   };
 
-  const initializeTables = (database: Database) => {
-    // Users table
+  const initializeTables = async (database: Database) => {
+    // Users table with password field
     database.run(`
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
         role TEXT NOT NULL CHECK (role IN ('admin', 'student')),
         student_id TEXT,
         department TEXT,
@@ -91,11 +93,23 @@ export const useDatabase = () => {
       )
     `);
 
-    // Insert default admin user
-    database.run(`
-      INSERT OR IGNORE INTO users (id, name, email, role, created_at)
-      VALUES ('admin-1', 'Administrator', 'admin@attendance.app', 'admin', datetime('now'))
-    `);
+    // Check if admin user exists
+    const checkAdmin = database.prepare('SELECT COUNT(*) as count FROM users WHERE email = ?');
+    checkAdmin.bind(['admin@attendance.app']);
+    
+    if (checkAdmin.step()) {
+      const result = checkAdmin.getAsObject();
+      if (result.count === 0) {
+        // Insert default admin user with hashed password
+        const hashedPassword = await hashPassword('admin123');
+        database.run(`
+          INSERT INTO users (id, name, email, password, role, created_at)
+          VALUES ('admin-1', 'Administrator', 'admin@attendance.app', ?, 'admin', datetime('now'))
+        `, [hashedPassword]);
+      }
+    }
+    
+    checkAdmin.free();
   };
 
   return { db, isLoading, saveDatabase };
