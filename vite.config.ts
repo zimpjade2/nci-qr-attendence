@@ -50,10 +50,11 @@ export default defineConfig({
   resolve: {
     alias: {
       buffer: 'buffer',
+      util: 'util',
     },
   },
   optimizeDeps: {
     exclude: ['lucide-react'],
-    include: ['buffer'],
+    include: ['buffer', 'util'],
   },
 });
